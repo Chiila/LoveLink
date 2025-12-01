@@ -89,9 +89,30 @@ export default function ChatPage() {
     // Listen for new messages
     const handleNewMessage = (data: { message: Message; matchId: string }) => {
       if (data.matchId === matchId) {
-        setMessages((prev) => [...prev, data.message]);
-        // Mark as read
-        socket.emit('markAsRead', { matchId });
+        setMessages((prev) => {
+          // Check if this is our own message (to replace optimistic message)
+          if (data.message.senderId === user?.id) {
+            // Find and replace the optimistic message with the real one
+            const hasOptimistic = prev.some((m) => m.id.startsWith('temp-'));
+            if (hasOptimistic) {
+              // Replace the first temp message that matches the content
+              let replaced = false;
+              return prev.map((m) => {
+                if (!replaced && m.id.startsWith('temp-') && m.content === data.message.content) {
+                  replaced = true;
+                  return data.message;
+                }
+                return m;
+              });
+            }
+          }
+          // For messages from others, just add to the list
+          return [...prev, data.message];
+        });
+        // Mark as read if message is from partner
+        if (data.message.senderId !== user?.id) {
+          socket.emit('markAsRead', { matchId });
+        }
       }
     };
 
@@ -102,12 +123,26 @@ export default function ChatPage() {
       }
     };
 
+    // Listen for messages read event (to show "Seen" indicator)
+    const handleMessagesRead = (data: { matchId: string; readerId: string }) => {
+      if (data.matchId === matchId && data.readerId !== user?.id) {
+        // Mark all our sent messages as read
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.senderId === user?.id ? { ...m, isRead: true } : m
+          )
+        );
+      }
+    };
+
     socket.on('newMessage', handleNewMessage);
     socket.on('userTyping', handleTyping);
+    socket.on('messagesRead', handleMessagesRead);
 
     return () => {
       socket.off('newMessage', handleNewMessage);
       socket.off('userTyping', handleTyping);
+      socket.off('messagesRead', handleMessagesRead);
       socket.emit('leaveChat', { matchId });
     };
   }, [socket, matchId, user?.id]);
@@ -332,14 +367,31 @@ export default function ChatPage() {
                     <p className="text-sm whitespace-pre-wrap break-words">
                       {message.content}
                     </p>
-                    <p
+                    <div
                       className={cn(
-                        'text-[10px] mt-1',
-                        isOwn ? 'text-white/70' : 'text-muted-foreground'
+                        'flex items-center gap-1 mt-1',
+                        isOwn ? 'justify-end' : ''
                       )}
                     >
-                      {formatTime(message.sentAt)}
-                    </p>
+                      <span
+                        className={cn(
+                          'text-[10px]',
+                          isOwn ? 'text-white/70' : 'text-muted-foreground'
+                        )}
+                      >
+                        {formatTime(message.sentAt)}
+                      </span>
+                      {isOwn && (
+                        <span
+                          className={cn(
+                            'text-[10px]',
+                            message.isRead ? 'text-white/90' : 'text-white/50'
+                          )}
+                        >
+                          {message.isRead ? '• Seen' : '• Sent'}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </motion.div>
               );

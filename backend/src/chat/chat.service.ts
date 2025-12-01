@@ -28,7 +28,8 @@ export class ChatService {
     userId: string,
     limit: number = 50,
     offset: number = 0,
-  ): Promise<{ messages: Message[]; total: number }> {
+    markAsRead: boolean = true,
+  ): Promise<{ messages: Message[]; total: number; unreadCount: number }> {
     // Verify match exists and user is part of it
     await this.matchesService.getMatch(matchId, userId);
 
@@ -40,10 +41,15 @@ export class ChatService {
       skip: offset,
     });
 
-    // Mark messages as read
-    await this.markMessagesAsRead(matchId, userId);
+    // Get unread count before marking as read
+    const unreadCount = await this.getUnreadCountForMatch(matchId, userId);
 
-    return { messages: messages.reverse(), total };
+    // Mark messages as read only if requested
+    if (markAsRead) {
+      await this.markMessagesAsRead(matchId, userId);
+    }
+
+    return { messages: messages.reverse(), total, unreadCount };
   }
 
   /**
@@ -130,6 +136,32 @@ export class ChatService {
       order: { sentAt: 'DESC' },
       relations: ['sender', 'sender.profile'],
     });
+  }
+
+  /**
+   * Get unread count for a specific match
+   */
+  async getUnreadCountForMatch(matchId: string, userId: string): Promise<number> {
+    return this.messagesRepository
+      .createQueryBuilder('message')
+      .where('message.matchId = :matchId', { matchId })
+      .andWhere('message.senderId != :userId', { userId })
+      .andWhere('message.isRead = false')
+      .getCount();
+  }
+
+  /**
+   * Get last message with unread count for a match
+   */
+  async getLastMessageWithUnread(
+    matchId: string,
+    userId: string,
+  ): Promise<{ lastMessage: Message | null; unreadCount: number }> {
+    const [lastMessage, unreadCount] = await Promise.all([
+      this.getLastMessage(matchId),
+      this.getUnreadCountForMatch(matchId, userId),
+    ]);
+    return { lastMessage, unreadCount };
   }
 }
 

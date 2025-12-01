@@ -125,7 +125,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     newSocket.on('messageNotification', (data: any) => {
       addNotification({
         type: 'message',
-        title: 'New Message 💬',
+        title: `${data.senderName || 'Someone'} sent you a message 💬`,
         body: data.preview,
         data,
       });

@@ -12,10 +12,10 @@ import { Match } from './match.entity';
 @Entity('messages')
 export class Message {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id: string; 
 
   @Column()
-  matchId: string;
+  matchId: string; 
 
   @Column()
   senderId: string;

@@ -27,12 +27,14 @@ export class ChatController {
     @Param('matchId') matchId: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('markAsRead') markAsRead?: string,
   ) {
     const result = await this.chatService.getMessages(
       matchId,
       req.user.id,
       limit ? parseInt(limit) : 50,
       offset ? parseInt(offset) : 0,
+      markAsRead !== 'false', // Default to true, only false if explicitly set
     );
 
     return {
@@ -40,6 +42,7 @@ export class ChatController {
       data: {
         messages: result.messages,
         total: result.total,
+        unreadCount: result.unreadCount,
       },
     };
   }

@@ -4,10 +4,11 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Heart, Compass, MessageCircle, User, LogOut, Bell, Sparkles } from 'lucide-react';
+import { Heart, Compass, MessageCircle, User, LogOut, Sparkles } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { useNotifications } from '@/lib/notification-context';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { NotificationDropdown } from '@/components/notification-dropdown';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn, getInitials } from '@/lib/utils';
@@ -110,14 +111,7 @@ export default function DashboardLayout({
               <ThemeToggle />
               
               {/* Notifications */}
-              <Button variant="ghost" size="icon" className="relative">
-                <Bell className="w-5 h-5" />
-                {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-5 h-5 text-xs rounded-full bg-love-500 text-white flex items-center justify-center">
-                    {unreadCount > 9 ? '9+' : unreadCount}
-                  </span>
-                )}
-              </Button>
+              <NotificationDropdown />
 
               {/* User Avatar */}
               <div className="flex items-center gap-3">

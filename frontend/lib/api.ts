@@ -173,10 +173,11 @@ export const matchesApi = {
 
 // Chat API
 export const chatApi = {
-  getMessages: (matchId: string, limit?: number, offset?: number) => {
+  getMessages: (matchId: string, limit?: number, offset?: number, markAsRead: boolean = true) => {
     const params = new URLSearchParams();
     if (limit) params.append('limit', limit.toString());
-    if (offset) params.append('offset', offset.toString());
+    if (offset !== undefined) params.append('offset', offset.toString());
+    params.append('markAsRead', markAsRead.toString());
     return api.get(`/chat/${matchId}?${params.toString()}`);
   },
   sendMessage: (matchId: string, content: string) =>

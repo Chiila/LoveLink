@@ -138,10 +138,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const match = await this.matchesService.getMatch(data.matchId, client.userId);
       const recipientId = match.partner.id;
 
+      // Get sender info from the saved message
+      const senderName = message.sender?.profile?.name || 'Someone';
+
       // Send notification to recipient if not in the chat room
       this.server.to(`user:${recipientId}`).emit('messageNotification', {
         matchId: data.matchId,
         senderId: client.userId,
+        senderName: senderName,
         preview: data.content.substring(0, 50),
       });
 
@@ -163,6 +167,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     try {
       await this.chatService.markMessagesAsRead(data.matchId, client.userId);
+      
+      // Notify the sender that their messages have been seen
+      this.server.to(`match:${data.matchId}`).emit('messagesRead', {
+        matchId: data.matchId,
+        readerId: client.userId,
+      });
+      
       return { success: true };
     } catch (error) {
       return { success: false };

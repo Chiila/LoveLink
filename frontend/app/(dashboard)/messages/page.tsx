@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageCircle, Search, Heart } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -9,6 +8,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { matchesApi, chatApi } from '@/lib/api';
 import { useToast } from '@/components/ui/toaster';
+import { useNotifications } from '@/lib/notification-context';
 import { cn, getInitials, formatRelativeTime, truncate } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 
@@ -28,36 +28,36 @@ interface Match {
     content: string;
     sentAt: string;
     senderId: string;
+    isRead: boolean;
   };
+  unreadCount: number;
 }
 
 export default function MessagesPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const { socket } = useNotifications();
   const [matches, setMatches] = useState<Match[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
-  useEffect(() => {
-    fetchMatches();
-  }, []);
-
-  const fetchMatches = async () => {
+  const fetchMatches = useCallback(async () => {
     setIsLoading(true);
     try {
       const response = await matchesApi.getMatches();
       if (response.success && response.data?.matches) {
-        // Get last message for each match
+        // Get last message and unread count for each match (without marking as read)
         const matchesWithMessages = await Promise.all(
           response.data.matches.map(async (match: Match) => {
             try {
-              const messagesResponse = await chatApi.getMessages(match.id, 1, 0);
+              const messagesResponse = await chatApi.getMessages(match.id, 1, 0, false);
               const lastMessage = messagesResponse.data?.messages?.[0];
-              return { ...match, lastMessage };
+              const unreadCount = messagesResponse.data?.unreadCount || 0;
+              return { ...match, lastMessage, unreadCount };
             } catch {
-              return match;
+              return { ...match, unreadCount: 0 };
             }
           })
         );
@@ -80,6 +80,63 @@ export default function MessagesPage() {
     } finally {
       setIsLoading(false);
     }
+  }, [toast]);
+
+  // Initial fetch
+  useEffect(() => {
+    fetchMatches();
+  }, [fetchMatches]);
+
+  // Listen for real-time updates
+  useEffect(() => {
+    if (!socket) return;
+
+    // When a new message arrives, update the unread count
+    const handleNewMessage = (data: { message: any; matchId: string }) => {
+      setMatches((prev) =>
+        prev.map((match) => {
+          if (match.id === data.matchId) {
+            return {
+              ...match,
+              lastMessage: {
+                content: data.message.content,
+                sentAt: data.message.sentAt,
+                senderId: data.message.senderId,
+                isRead: false,
+              },
+              unreadCount: match.unreadCount + 1,
+            };
+          }
+          return match;
+        })
+      );
+    };
+
+    // When a new match happens, refetch the list
+    const handleNewMatch = () => {
+      fetchMatches();
+    };
+
+    socket.on('newMessage', handleNewMessage);
+    socket.on('newMatch', handleNewMatch);
+
+    return () => {
+      socket.off('newMessage', handleNewMessage);
+      socket.off('newMatch', handleNewMatch);
+    };
+  }, [socket, fetchMatches]);
+
+  // Clear unread count when clicking a conversation
+  const handleConversationClick = (matchId: string) => {
+    // Immediately clear the unread count in local state
+    setMatches((prev) =>
+      prev.map((match) =>
+        match.id === matchId ? { ...match, unreadCount: 0 } : match
+      )
+    );
+    
+    // Navigate to the chat
+    router.push(`/messages/${matchId}`);
   };
 
   const filteredMatches = matches.filter((match) =>
@@ -138,39 +195,55 @@ export default function MessagesPage() {
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: index * 0.05 }}
                 >
-                  <Link href={`/messages/${match.id}`}>
-                    <div className="flex items-center gap-4 p-4 rounded-xl bg-card border hover:bg-muted/50 transition-colors cursor-pointer">
-                      {/* Avatar */}
-                      <Avatar className="w-14 h-14 border-2 border-love-200 dark:border-love-800">
-                        <AvatarImage
-                          src={match.partner.profile.profilePhoto ? `${API_URL}${match.partner.profile.profilePhoto}` : undefined}
-                          alt={match.partner.profile.name}
-                        />
-                        <AvatarFallback className="bg-gradient-to-br from-love-100 to-coral-100 dark:from-love-900 dark:to-coral-900">
-                          {getInitials(match.partner.profile.name)}
-                        </AvatarFallback>
-                      </Avatar>
+                  <div 
+                    onClick={() => handleConversationClick(match.id)}
+                    className="flex items-center gap-4 p-4 rounded-xl bg-card border hover:bg-muted/50 transition-colors cursor-pointer"
+                  >
+                    {/* Avatar */}
+                    <Avatar className="w-14 h-14 border-2 border-love-200 dark:border-love-800">
+                      <AvatarImage
+                        src={match.partner.profile.profilePhoto ? `${API_URL}${match.partner.profile.profilePhoto}` : undefined}
+                        alt={match.partner.profile.name}
+                      />
+                      <AvatarFallback className="bg-gradient-to-br from-love-100 to-coral-100 dark:from-love-900 dark:to-coral-900">
+                        {getInitials(match.partner.profile.name)}
+                      </AvatarFallback>
+                    </Avatar>
 
-                      {/* Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-1">
-                          <h3 className="font-semibold truncate">
-                            {match.partner.profile.name}
-                          </h3>
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <h3 className={cn(
+                          "truncate",
+                          match.unreadCount > 0 ? "font-bold" : "font-semibold"
+                        )}>
+                          {match.partner.profile.name}
+                        </h3>
+                        <div className="flex items-center gap-2">
+                          {match.unreadCount > 0 && (
+                            <span className="flex items-center justify-center min-w-[20px] h-5 px-1.5 text-xs font-bold text-white bg-love-500 rounded-full">
+                              {match.unreadCount}
+                            </span>
+                          )}
                           <span className="text-xs text-muted-foreground">
                             {match.lastMessage
                               ? formatRelativeTime(match.lastMessage.sentAt)
                               : formatRelativeTime(match.matchedAt)}
                           </span>
                         </div>
-                        <p className="text-sm text-muted-foreground truncate">
-                          {match.lastMessage
-                            ? truncate(match.lastMessage.content, 50)
-                            : 'Start a conversation!'}
-                        </p>
                       </div>
+                      <p className={cn(
+                        "text-sm truncate",
+                        match.unreadCount > 0 
+                          ? "font-semibold text-foreground" 
+                          : "text-muted-foreground"
+                      )}>
+                        {match.lastMessage
+                          ? truncate(match.lastMessage.content, 50)
+                          : 'Start a conversation!'}
+                      </p>
                     </div>
-                  </Link>
+                  </div>
                 </motion.div>
               ))}
             </AnimatePresence>
